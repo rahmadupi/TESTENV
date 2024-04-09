@@ -11,8 +11,8 @@ servo_type="None"
 #konstanta string lokasi file
 default_loc="../../data/"
 # input
-filenameMX="/resource/Motion MX Nina (M) NC.mtnx" #to be changed #specify file location and filename
-filenameXL="/resource/Motion XL Nina NC.mtnx" #to be changed #specify file location and filename
+filenameMX="../resource/Motion MX Nina (M) NC.mtnx" #to be changed #specify file location and filename
+filenameXL="../resource/Motion XL Nina NC.mtnx" #to be changed #specify file location and filename
 data_loc_mx=filenameMX
 data_loc_xl=filenameXL
 #output
@@ -82,8 +82,8 @@ def getbucket(path, movie_data, unit_data):
             duration=0
             end_frame=0; #unused
             for unit in movie_data[motion_movie_name.index(movie.get('flow'))]["motion_unit"]:
-                duration+=(round((unit_data[unit["id"]]["time"][unit_data[unit["id"]]["total_frame"]-1])*unit["speed"]))*unit["loop"]
-                end_frame+=(round((unit_data[unit["id"]]["time"][unit_data[unit["id"]]["total_frame"]-1])*unit["speed"]))*unit["loop"] #unused
+                duration+=(round((unit_data[unit["id"]]["time"][unit_data[unit["id"]]["total_frame"]-1])/unit["speed"]))*unit["loop"]
+                end_frame+=(round((unit_data[unit["id"]]["time"][unit_data[unit["id"]]["total_frame"]-1])/unit["speed"]))*unit["loop"] #unused
             end_frame+=start_frame #unused
             motion_movie = {
                 "id": motion_movie_name.index(movie.get('flow')),#motion_movie_id,
@@ -253,3 +253,7 @@ for i in files:
         #     print(f"Exception: {sys.exc_info()[0]}")
     else:
         print("[-] Missing Servo type XL or MX speceifier in file name")
+        
+
+
+

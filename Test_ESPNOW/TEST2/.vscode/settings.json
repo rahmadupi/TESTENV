@@ -1,0 +1,13 @@
+{
+  "files.associations": {
+    "*.cpp": "cpp",
+    "array": "cpp",
+    "string": "cpp",
+    "string_view": "cpp",
+    "*.tcc": "cpp",
+    "cstddef": "cpp",
+    "fstream": "cpp",
+    "initializer_list": "cpp",
+    "utility": "cpp"
+  }
+}
