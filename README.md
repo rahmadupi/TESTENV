@@ -16,15 +16,19 @@
 Script - converter_v2.py
 
 ## Panduan Script Python
+
 https://github.com/virose-its/sub-program/blob/8fd267e98681fa2625c2fa4da022e3e18f0bebb1/scripts/program/converterv2.py#L14-L15
+
 - Masukan lokasi dari file .mtnx pada variable yang sesuai
-> _note: Pastikan terdapat penanda tipe servo "MX" atau "XL" dalam nama file .mtnx_
+  > _note: Pastikan terdapat penanda tipe servo "MX" atau "XL" dalam nama file .mtnx_
 
 https://github.com/virose-its/sub-program/blob/8fd267e98681fa2625c2fa4da022e3e18f0bebb1/scripts/program/converterv2.py#L21-L23
 Spesifikasikan dimana file json akan ditaruh, secara default file json akan disimpan kedalam folder data dan difolder dengan nama tipe servo yang sesuai
-> Output berupa 2 file json untuk motion bucket dan motion movie dan 1 folder berisi setiap motion unit dalam file json secara terpisah
+
+> Output berupa 3 folder yang berisi setiap data disimpan dalam file json secara terpisah
 
 ##### Struktur file output
+
 ```
 MX -
  - motion_bucket -
@@ -42,8 +46,7 @@ MX -
      - 1.json
      - 2.json
       .....
- - motion_bucket.json
- - motion_movie.json
+ - motion_info.json
 
 XL -
  - motion_bucket -
@@ -61,12 +64,11 @@ XL -
      - 1.json
      - 2.json
       .....
- - motion_bucket.json
- - motion_movie.json
+ - motion_info.json
 ```
 
-
 ## Struktur Data Dalam File Json
+
 <details>
   <summary>Bucket</summary>
   motion_bucket.json<br>
@@ -155,37 +157,33 @@ XL -
   }
   ```
 
-  24.json
-  
-  ```
-  {
-    "id": 24,
-    "name": "1/2 SETELAH SALAM",
-    "total_frame": 2,
-    "time": [104, 358],
-    "motion_frame": [
-      [
-        2048, 2048, 2048, 2048, 2048, 2048, 2242, 1854, 1604, 2492, 1807, 2302,
-        2021, 2049
-      ],
-      [
-        2048, 2048, 2048, 2048, 2048, 2048, 2242, 1854, 1604, 2492, 1807, 2302,
-        2021, 2049
-      ]
+24.json
+
+```
+{
+  "id": 24,
+  "name": "1/2 SETELAH SALAM",
+  "total_frame": 2,
+  "time": [104, 358],
+  "motion_frame": [
+    [
+      2048, 2048, 2048, 2048, 2048, 2048, 2242, 1854, 1604, 2492, 1807, 2302,
+      2021, 2049
+    ],
+    [
+      2048, 2048, 2048, 2048, 2048, 2048, 2242, 1854, 1604, 2492, 1807, 2302,
+      2021, 2049
     ]
-  }
-  ```
-  
+  ]
+}
+```
+
 </details>
 </details>
 </li>
-
-
 
 <ul>
 </details>
 </li>
-
-
 
 <ul>

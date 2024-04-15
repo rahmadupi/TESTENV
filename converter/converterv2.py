@@ -9,18 +9,18 @@ motion_movie_name=[]
 
 servo_type="None"
 #konstanta string lokasi file
-default_loc="../../data/"
+default_loc="../data/"
 # input
 filenameMX="../resource/Motion MX Nina (M) NC.mtnx" #to be changed #specify file location and filename
 filenameXL="../resource/Motion XL Nina NC.mtnx" #to be changed #specify file location and filename
 data_loc_mx=filenameMX
 data_loc_xl=filenameXL
 #output
-loc_bucket="../data/"+servo_type+"/"
+#loc_bucket="../data/"+servo_type+"/"
 loc_bucket_sep="../data/"+servo_type+"/motion_bucket/"
-loc_movie="../data/"+servo_type+"/"
+#loc_movie="../data/"+servo_type+"/"
 loc_movie_sep="../data/"+servo_type+"/motion_movie/"
-loc_unit="../data/"+servo_type+"/motion_unit/"
+loc_unit_sep="../data/"+servo_type+"/motion_unit/"
 
 def verify_path():
     if not os.path.exists(loc_bucket_sep):
@@ -29,25 +29,25 @@ def verify_path():
     if not os.path.exists(loc_movie_sep):
         print("[-] Folder missing\n[+] Creating folder..."+ loc_movie_sep)
         os.makedirs(loc_movie_sep)
-    if not os.path.exists(loc_unit):
-        print("[-] Folder missing\n[+] Creating folder..."+ loc_unit)
-        os.makedirs(loc_unit)
+    if not os.path.exists(loc_unit_sep):
+        print("[-] Folder missing\n[+] Creating folder..."+ loc_unit_sep)
+        os.makedirs(loc_unit_sep)
         
 
 #convert_data_function
 def update_variable(servo_type):
     #output
-    global loc_bucket
+    #global loc_bucket
     global loc_bucket_sep
-    global loc_movie
+    #global loc_movie
     global loc_movie_sep
-    global loc_unit
+    global loc_unit_sep
     
-    loc_bucket="../data/"+servo_type+"/"
+    #loc_bucket="../data/"+servo_type+"/"
     loc_bucket_sep="../data/"+servo_type+"/motion_bucket/"
     loc_movie="../data/"+servo_type+"/"
     loc_movie_sep="../data/"+servo_type+"/motion_movie/"
-    loc_unit="../data/"+servo_type+"/motion_unit/"
+    loc_unit_sep="../data/"+servo_type+"/motion_unit/"
     
 def convert_motion(data, type):
     angelMX = 180
@@ -174,13 +174,8 @@ def getunit(path, servo):
     return motion_units
 
 #process_function
-def generate_file(data, what):
-    if(what==0): #motion_bucket
-        to_json=json.dumps(data, separators=(',', ':'))
-        output_file=open(loc_bucket+"MOTION_BUCKET.json",'w')
-        output_file.write(to_json)
-        output_file.close()
-        
+def generate_file(data, what, *arg):
+    if(what==0): #motion_bucket      
         iter=0
         for i in data:
             to_json=json.dumps(i, separators=(',', ':'))
@@ -191,11 +186,6 @@ def generate_file(data, what):
             
             
     elif(what==1): #motion_movie
-        to_json=json.dumps(data, separators=(',', ':'))
-        output_file=open(loc_movie+"MOTION_MOVIE.json",'w')
-        output_file.write(to_json)
-        output_file.close()
-        
         iter=0
         for i in data:
             to_json=json.dumps(i, separators=(',', ':'))
@@ -204,14 +194,32 @@ def generate_file(data, what):
             output_file.close()
             iter+=1
             
-    else: #motion_unit
+    elif(what==2): #motion_unit
         iter=0
         for i in data:
             to_json=json.dumps(i, separators=(',', ':'))
-            output_file=open(loc_unit+str(iter)+".json",'w')
+            output_file=open(loc_unit_sep+str(iter)+".json",'w')
             output_file.write(to_json)
             output_file.close()
             iter+=1
+    else:
+        motion={
+            "motion_bucket": loc_bucket_sep,
+            "motion_bucket_total": arg[0],
+            "motion_bucket_total_size": arg[3],
+            "motion_movie": loc_movie_sep,
+            "motion_movie_total": arg[1],
+            "motion_movie_total_size": arg[4],
+            "motion_unit": loc_unit_sep,
+            "motion_unit_total": arg[2],
+            "motion_unit_total_size": arg[5],
+        }
+        to_json=json.dumps(motion, separators=(',', ':'))
+        output_file=open(default_loc+servo_type +"/motion_info.json",'w')
+        output_file.write(to_json)
+        output_file.close()
+        
+        #generate info
 
 def start_get(path):
     #filename
@@ -236,6 +244,7 @@ def start_get(path):
     generate_file(bucket_data, 0)
     generate_file(movie_data, 1)
     generate_file(unit_data, 2)
+    generate_file("motion_info",3, len(bucket_data), len(movie_data), len(unit_data), bucket_data.__sizeof__(), movie_data.__sizeof__(), unit_data.__sizeof__())
 
 #main
 files=[data_loc_mx, data_loc_xl]
