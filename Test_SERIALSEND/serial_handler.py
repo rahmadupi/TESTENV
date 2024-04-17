@@ -4,6 +4,33 @@ import struct
 import paho.mqtt.client as mqtt
 import json
 import virose_com_lib as virose
+import threading
+import os
+import binascii
+import time
+
+servo_type="None"
+esp_mac_index=2
+motion="111" # [0] - bucket, [1] - movie, [2] - unit
+loc_motion_bucket="../data/"+servo_type+"/motion_bucket/"
+loc_motion_movie="../data/"+servo_type+"/motion_movie/"
+loc_motion_unit="../data/"+servo_type+"/motion_unit/"
+
+def update_variable(servo, what_motion):
+    global loc_motion_bucket
+    global loc_motion_movie
+    global loc_motion_unit
+    
+    loc_motion_bucket="../data/"+servo+"/motion_bucket/"
+    loc_motion_movie="../data/"+servo+"/motion_movie/"
+    loc_motion_unit="../data/"+servo+"/motion_unit/"
+    
+    if what_motion==1:
+        return loc_motion_bucket
+    elif what_motion==2:
+        return loc_motion_movie
+    elif what_motion==3:
+        return loc_motion_unit
 
 def convert_to_bytes(data):
     # === FLOAT ===
@@ -19,6 +46,8 @@ def convert_to_bytes(data):
         # === ENUM in STRING ===
         elif data in virose.State.__members__: 
             data = virose.State[data].value.to_bytes(1, byteorder='little')
+        elif data in virose.Command.__members__: 
+            data = virose.Command[data].value.to_bytes(1, byteorder='little')
         # === FLOAT in STRING ===
         else:                                     
             data = struct.pack('f', float(data))
@@ -26,7 +55,7 @@ def convert_to_bytes(data):
     elif type(data) == list:
         data = b''.join([convert_to_bytes(x) for x in data])
     # === INT ===
-    else:                                          
+    elif type(data) == int:                                          
         data = data.to_bytes(4, byteorder='little')
     
     return data
@@ -52,17 +81,24 @@ def mqtt_on_message_cb(client, userdata, msg):
 
 def serial_send(cmd, data, mac_index = -1):
     # filter all data type to bytes
-    for i in range(len(data)):
-        data[i] = convert_to_bytes(data[i])
+    try:
+        for i in range(len(data)):
+            data[i]= convert_to_bytes(data[i])
+            
+        # +1 for cmd
+        len_data = len(b''.join(data)) + 1
+        mac_index= 255 if mac_index == -1 else mac_index
+        byte_data=b''+bytes([0xFD])+convert_to_bytes(mac_index)+convert_to_bytes(len_data)+convert_to_bytes(cmd.value)+b''.join(data)+ b'\n'
+        # debug
+        print("[TO ESP] MAC:", mac_index, "| CMD:", (virose.Command(cmd)).name, "| Size:", len_data + 3)
 
-    # +1 for cmd
-    len_data = len(b''.join(data)) + 1
-    data_send = bytes([0xFD, 255 if mac_index == -1 else mac_index, len_data, cmd]) + b''.join(data)
-
-    # debug
-    print("[TO ESP] MAC:", mac_index, "| CMD:", (virose.Command(cmd)).name, "| Size:", len_data + 3, "| Data:", data_send.hex().upper())
-
-    ser.write(data_send)
+        ser.write(byte_data)
+        time.sleep(0.1)
+        
+        return True
+    except Exception as err:
+        print(f"[-] Serial send error: {err}")
+        return False
 
 def serial_recv():
     header = ser.read(1)
@@ -70,7 +106,7 @@ def serial_recv():
     # "[" = "x5B"
     if header == b'\x5B':
         data = b'\x5B' + ser.read_until(b'\n')
-        client.publish("esp32/monitor", data)
+        #client.publish("esp32/monitor", data)
         return
 
     if header != b'\xFD':
@@ -81,7 +117,7 @@ def serial_recv():
     cmd = int.from_bytes(ser.read())
     data = ser.read(len - 1)
 
-    # debug
+    # debugs
     data_debug = bytes([0xFD, 255 if mac_index == -1 else mac_index, len, cmd]) + data
     print("[FR ESP] MAC:", mac_index, "| CMD:", (virose.Command(cmd)).name, "| Size:", len + 2, "| Data:", data_debug.hex().upper())
 
@@ -91,8 +127,52 @@ def serial_recv():
     except:
         print("[ERROR] FATAL, command name not defined in ENUM virose_com_lib.py")
         exit()
+    
 
-    client.publish("esp32/"+str(mac_index)+"/response", json.dumps(payload))
+    # client.publish("esp32/"+str(mac_index)+"/response", json.dumps(payload))
+    
+    
+def active_send(what_motion):
+
+    servo_type="MX"
+        
+    # header | mac index | cmd | tipe servo | jenis motion | nama | isi data | checksum | \n
+    for i in range (2):
+        directory=update_variable(servo_type, what_motion)
+        for file in os.scandir(directory):
+            #if file.is_file():
+            with open(file.path, 'rb') as finput:
+                cmd=virose.Command.DATA_INITIALIZATION_TO_MID
+                name=str(file.name.split(".")[0]) #get filename
+                file_data = (finput.read()) #get file data
+                checksum=binascii.crc32(file_data) & 0xffffffff #get checksum
+                if(servo_type=="MX"):
+                    servo=1
+                else:
+                    servo=2
+                data=[servo, what_motion, name, file_data, checksum]
+                if(serial_send(cmd, data, esp_mac_index)):
+                    print(f"[+] Serial send success: File sent - {name}")
+                else:
+                    print(f"[-] Terminating process - Send reset command to receiver esp")
+                    #break
+                    # send command to reset data to esp receiver
+                    cmd=virose.Command.DATA_RESET
+                    serial_send(cmd, 1)
+                    exit()
+                finput.close()
+        servo_type="XL"
+    
+def begin_send():
+    # send bucket
+    if(motion[0]=="1"):
+        active_send(1)
+    # send movie
+    if(motion[1]=="1"):
+        active_send(2)
+    # send unit
+    if(motion[2]=="1"):
+        active_send(3)
 
 # Main program
 if __name__ == "__main__":
@@ -118,21 +198,40 @@ if __name__ == "__main__":
             exit()
 
     # Setup MQTT
-    client = mqtt.Client()
-    client.on_connect = lambda client, userdata, flags, rc: client.subscribe("esp32/+/recv")
-    client.on_message = mqtt_on_message_cb
-    try:
-        client.connect("localhost", 1883, 60)
-    except:
-        print("[ERROR] Please run MQTT broker first")
-        exit()
+    # client = mqtt.Client()
+    # client.on_connect = lambda client, userdata, flags, rc: client.subscribe("esp32/+/recv")
+    # client.on_message = mqtt_on_message_cb
+    # try:
+    #     client.connect("localhost", 1883, 60)
+    # except:
+    #     print("[ERROR] Please run MQTT broker first")
+    #     exit()
 
-    client.loop_start()
-    while not client.is_connected():
-        pass
-    print("[MQTT] Connected")
+    # client.loop_start()
+    # while not client.is_connected():
+    #     pass
+    # print("[MQTT] Connected")
+    
+    send_thread=threading.Thread(target=begin_send)
+    send_thread.start()
+    send_thread.join()
 
     while True:
         # Panggil fungsi serial_recv dalam loop utama
         if ser.in_waiting:
             serial_recv()
+
+# #print(binascii.unhexlify(checksum).decode('utf-8'))
+# data="fak"
+# enc=data.encode('utf-8')
+# print(enc)
+# print(enc.decode('utf-8'))
+            
+# directory="../data/MX/motion_bucket/1.json"
+# with open(directory, "r") as f:
+#     data=f.read()
+#     print(len(data))
+# data=os.scandir(directory)
+# for i in data:
+#     if i.is_file():
+#         print(i.name.split(".")[0])

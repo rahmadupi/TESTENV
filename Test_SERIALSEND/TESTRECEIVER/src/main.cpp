@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <CRC32.h>
+#include <PubSubClient.h>
 #include <SPIFFS.h>
 #include <WiFi.h>
 #include <esp_now.h>
