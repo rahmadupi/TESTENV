@@ -3,18 +3,81 @@ import serial.tools.list_ports
 import struct
 import paho.mqtt.client as mqtt
 import json
+import math
 import virose_com_lib as virose
 import threading
 import os
 import binascii
-import time
+from time import sleep
+import re
 
+#fixed value
+max_chunk_size=230
 servo_type="None"
-esp_mac_index=2
+
+# option
 motion="111" # [0] - bucket, [1] - movie, [2] - unit
+display_data=False
+time_delay=0.05
+esp_mac_index=2
+
+loc_default="../data/"
 loc_motion_bucket="../data/"+servo_type+"/motion_bucket/"
 loc_motion_movie="../data/"+servo_type+"/motion_movie/"
 loc_motion_unit="../data/"+servo_type+"/motion_unit/"
+
+# dynamic values
+current_file_sending=None
+dir_data=[]
+MX_dir=([i for i in os.scandir(loc_default+"MX/")]) #each servo has the same directory structure
+for i in MX_dir:
+    if i.is_dir():
+        dir_data.append(i.name)
+        
+bucket_file_count=(len([i for i in os.scandir(loc_default+"MX/"+"motion_bucket/")]) + len([i for i in os.scandir(loc_default+"XL/"+"motion_bucket/")]))
+movie_file_count=(len([i for i in os.scandir(loc_default+"MX/"+"motion_movie/")]) + len([i for i in os.scandir(loc_default+"XL/"+"motion_movie/")]))
+unit_file_count=(len([i for i in os.scandir(loc_default+"MX/"+"motion_unit/")]) + len([i for i in os.scandir(loc_default+"XL/"+"motion_unit/")]))
+total_file=[bucket_file_count, movie_file_count, unit_file_count]
+
+send_count=[0,0,0] # [0] - bucket, [1] - movie, [2] - unit
+send_status=[0,0,0] # [0] - bucket, [1] - movie, [2] - unit 1 means ongoing 2 means done
+
+
+def clear():
+    os.system('cls' if os.name == 'nt' else 'clear')
+
+def weird_display(*args):
+    status=["Not included", "Not included", "Not included"]
+    total_file_count=sum(total_file)
+    left=0
+    right=75
+    
+    calculate_bar= lambda left: sum(send_count)/total_file_count*75
+    calculate_precentage= lambda left: (left/75)*100
+    
+    for i in range(len(motion)):
+        if motion[i]=="1":
+            status[i]="Waiting"
+            
+    if not display_data:
+        while True:
+            clear()
+            for i in range(len(motion)):
+                if send_status[i]==1 and status[i]!="Not included":
+                    status[i]="Waiting"
+                elif send_status[i]==2 and status[i]!="Not included" and send_count[i]==total_file[i]:
+                    status[i]="Done"
+                
+            print("[+] BEGIN DATA_INITIALIZATION..............................................")
+            for i in dir_data:
+                print(i + " - " + str(send_count[dir_data.index(i)]) + "/" + str(total_file[dir_data.index(i)]) + " - " + status[dir_data.index(i)])
+            print()
+            
+            left=calculate_bar(left)
+            print("[+] Currently Sending:" + str(current_file_sending))
+            print("[+] |"+ "#"*left + "-"*(right-left) + "| " + str(int(calculate_precentage(left, right)))+"%")
+            
+        
 
 def update_variable(servo, what_motion):
     global loc_motion_bucket
@@ -25,11 +88,11 @@ def update_variable(servo, what_motion):
     loc_motion_movie="../data/"+servo+"/motion_movie/"
     loc_motion_unit="../data/"+servo+"/motion_unit/"
     
-    if what_motion==1:
+    if what_motion==virose.Motion.BUCKET:
         return loc_motion_bucket
-    elif what_motion==2:
+    elif what_motion==virose.Motion.MOVIE:
         return loc_motion_movie
-    elif what_motion==3:
+    elif what_motion==virose.Motion.UNIT:
         return loc_motion_unit
 
 def convert_to_bytes(data):
@@ -79,28 +142,28 @@ def mqtt_on_message_cb(client, userdata, msg):
 
     serial_send(cmd, data, mac_index)
 
-def serial_send(cmd, data, mac_index = -1):
+def serial_send(data, mac_index = -1, file=None):
     # filter all data type to bytes
     try:
-        for i in range(len(data)):
-            data[i]= convert_to_bytes(data[i])
-            
-        # +1 for cmd
-        len_data = len(b''.join(data)) + 1
-        mac_index= 255 if mac_index == -1 else mac_index
-        byte_data=b''+bytes([0xFD])+convert_to_bytes(mac_index)+convert_to_bytes(len_data)+convert_to_bytes(cmd.value)+b''.join(data)+ b'\n'
+       # +1 for cmd
+        len_data =len(data)+1
+        
+        #byte_data=bytes([0xFD, 255 if mac_index == -1 else mac_index, cmd])+data+ bytes([0xFE, 0x0A])
         # debug
-        print("[TO ESP] MAC:", mac_index, "| CMD:", (virose.Command(cmd)).name, "| Size:", len_data + 3)
+        if display_data:
+            print("[TO ESP] MAC:", mac_index, "| CMD:", virose.Command.DATA_INITIALIZATION.value, "| File: ", "INFO" if file==None else file.name ,"| Size:", len_data + 3, "| Data:", data.hex().upper())
 
-        ser.write(byte_data)
-        time.sleep(0.1)
+        # ser.write(data)
+        sleep(0.1)
         
         return True
     except Exception as err:
-        print(f"[-] Serial send error: {err}")
+        if display_data:
+            print(f"[-] Serial send error: {err}")
         return False
 
 def serial_recv():
+    clear()
     header = ser.read(1)
     # MONITOR: read until \n and publish to mqtt
     # "[" = "x5B"
@@ -131,48 +194,165 @@ def serial_recv():
 
     # client.publish("esp32/"+str(mac_index)+"/response", json.dumps(payload))
     
+def send_info(what_motion, file=None):
+    # | header | mac_index | cmd | state        
+    # | total_chunk | file_path | file_path_size | checksum - state DATA
+    # | total_file - state INFO
+    # default payload
+    data_send=None
     
-def active_send(what_motion):
-
-    servo_type="MX"
+    if what_motion==0:
+        pass
+    elif what_motion==virose.Motion.BUCKET:
+        data_send=bytes([0xFD, 255 if esp_mac_index == -1 else esp_mac_index, virose.Command.DATA_INITIALIZATION.value, virose.State.INIT_DIR_INFO.value])
+        file_count=bucket_file_count.to_bytes(4, byteorder='little')
+        data_send+=file_count
+        #send
         
-    # header | mac index | cmd | tipe servo | jenis motion | nama | isi data | checksum | \n
+    elif what_motion==virose.Motion.MOVIE:
+        data_send=bytes([0xFD, 255 if esp_mac_index == -1 else esp_mac_index, virose.Command.DATA_INITIALIZATION.value, virose.State.INIT_DIR_INFO.value])
+        file_count=movie_file_count.to_bytes(4, byteorder='little')
+        data_send+=file_count
+        #send
+        
+    elif what_motion==virose.Motion.UNIT:
+        data_send=bytes([0xFD, 255 if esp_mac_index == -1 else esp_mac_index, virose.Command.DATA_INITIALIZATION.value, virose.State.INIT_DIR_INFO.value])
+        file_count=unit_file_count.to_bytes(4, byteorder='little')
+        data_send+=file_count
+        #send
+        
+    elif what_motion==virose.Motion.FILE:
+        data_send=bytes([0xFD, 255 if esp_mac_index == -1 else esp_mac_index, virose.Command.DATA_INITIALIZATION.value, virose.State.INIT_INFO.value])
+        
+        chunk=math.ceil(os.path.getsize(file.path)/230).to_bytes(4, byteorder='little')
+        with open(file.path, "rb") as finput:
+            file_data=finput.read()
+            checksum=(binascii.crc32(file_data) & 0xffffffff).to_bytes(4, byteorder='little') #get checksum
+            finput.close()
+        file_info=bytes((str(file.path)).encode('utf-8')) + len(file.path).to_bytes(4, byteorder='little')
+        data_send+=chunk+file_info+checksum
+        print(f"[+] File: {file.name} - Checksum: {checksum}")
+        #send
+        
+    if data_send != None:
+        serial_send(data_send, esp_mac_index)
+        
+
+def send_dir(what_motion):
+    global send_status
+    
+    status=1
+    if what_motion==virose.Motion.BUCKET:
+        send_status[0]=status
+    elif what_motion==virose.Motion.MOVIE:
+        send_status[1]=status
+    elif what_motion==virose.Motion.UNIT:
+        send_status[2]=status
+    
+    send_info(what_motion)
+    servo_type="MX"
     for i in range (2):
         directory=update_variable(servo_type, what_motion)
         for file in os.scandir(directory):
-            #if file.is_file():
-            with open(file.path, 'rb') as finput:
-                cmd=virose.Command.DATA_INITIALIZATION_TO_MID
-                name=str(file.name.split(".")[0]) #get filename
-                file_data = (finput.read()) #get file data
-                checksum=binascii.crc32(file_data) & 0xffffffff #get checksum
-                if(servo_type=="MX"):
-                    servo=1
-                else:
-                    servo=2
-                data=[servo, what_motion, name, file_data, checksum]
-                if(serial_send(cmd, data, esp_mac_index)):
-                    print(f"[+] Serial send success: File sent - {name}")
-                else:
-                    print(f"[-] Terminating process - Send reset command to receiver esp")
-                    #break
-                    # send command to reset data to esp receiver
-                    cmd=virose.Command.DATA_RESET
-                    serial_send(cmd, 1)
-                    exit()
-                finput.close()
+            if not file.is_file():
+                continue
+            send_file(file, what_motion)
         servo_type="XL"
     
+    status=2
+    if what_motion==virose.Motion.BUCKET:
+        send_status[0]=status
+    elif what_motion==virose.Motion.MOVIE:
+        send_status[1]=status
+    elif what_motion==virose.Motion.UNIT:
+        send_status[2]=status
+    
+def send_file(file, what_motion):
+    global send_count
+    global current_file_sending
+    
+    current_file_sending=str(file.name)
+    send_count=send_count
+    
+    # sending info
+    send_info(virose.Motion.FILE, file)
+    # default
+    # | header(1) | mac index(1) | cmd(1) | state(1) | chunk_index(4) | isi data | 0xFE0A(2)
+    # data_send= bytes([0xFD, virose.Command.DATA_INITIALIZATION.value, virose.State.INIT_DATA.value])
+    
+    chunk_len=math.ceil(os.path.getsize(file.path)/max_chunk_size)
+    print(f"[+] total chunk: {chunk_len}")
+    
+    with open(file.path, 'rb') as finput:
+        for i in range(chunk_len):
+            data_send= bytes([0xFD, virose.Command.DATA_INITIALIZATION.value, virose.State.INIT_DATA.value])
+            file_data=finput.read(max_chunk_size)
+            data_send+=i.to_bytes(4, byteorder='little')+file_data+bytes([0xFE, 0x0A])   
+            # send
+            if(serial_send(data_send, esp_mac_index, file)):
+                print(f"[+] Serial send success: File sent - {file.name} - chunk {i}")
+                if what_motion==virose.Motion.BUCKET:
+                    send_count[0]+=1
+                elif what_motion==virose.Motion.MOVIE:
+                    send_count[1]+=1
+                elif what_motion==virose.Motion.UNIT:
+                    send_count[2]+=1
+            else:
+                print(f"[-] Error Send Failed")
+            
+        finput.close()
+        print()
+
 def begin_send():
     # send bucket
+    send_info(0)
+    
+    if display_data:
+        print("[+] Begin data INIT:")
+        print(f"[+] dir:{(len(MX_dir)-1)*2}")
+        for i in dir_data:
+            print(i)
+        print()
+    
+    #send bucket
     if(motion[0]=="1"):
-        active_send(1)
+        if display_data:    
+            MX_dir=len([i for i in os.scandir(loc_default+"MX/"+"motion_bucket/")])
+            XL_dir=len([i for i in os.scandir(loc_default+"XL/"+"motion_bucket/")])
+            print("[+] Sending Bucket..............................................")
+            print(f"MX: {MX_dir}, XL: {XL_dir}")
+        
+        #send_info(virose.Motion.BUCKET)
+        send_dir(virose.Motion.BUCKET)
     # send movie
     if(motion[1]=="1"):
-        active_send(2)
+        if display_data:  
+            MX_dir=len([i for i in os.scandir(loc_default+"MX/"+"motion_movie/")])
+            XL_dir=len([i for i in os.scandir(loc_default+"XL/"+"motion_movie/")])
+            print("[+] Sending Movie..............................................")
+            print(f"MX: {MX_dir}, XL: {XL_dir}")
+        
+        #send_info(virose.Motion.MOVIE)
+        send_dir(virose.Motion.MOVIE)
     # send unit
     if(motion[2]=="1"):
-        active_send(3)
+        if display_data:  
+            MX_dir=len([i for i in os.scandir(loc_default+"MX/"+"motion_unit/")])
+            XL_dir=len([i for i in os.scandir(loc_default+"XL/"+"motion_unit/")])
+            print("[+] Sending Unit..............................................")
+            print(f"MX: {MX_dir}, XL: {XL_dir}")
+        
+        #send_info(virose.Motion.UNIT)
+        send_dir(virose.Motion.UNIT)
+        
+# flagged
+# tambahi state gae info data - | header | mac_index | cmd | state | total_chunk
+# state gae ngirim data - | header | mac index | cmd | state | chunk_index | file_path | file_path_size | isi data | 0xFE0A
+
+# end state
+# mecah setiap file nak beberapa chunk
+# parameter tipe servo tipe motion diganti alamat file ambek ukuran string e
+# gae handler e dok esp32
 
 # Main program
 if __name__ == "__main__":
@@ -215,23 +395,30 @@ if __name__ == "__main__":
     send_thread=threading.Thread(target=begin_send)
     send_thread.start()
     send_thread.join()
+    
+    display_thread=threading.Thread(target=weird_display)
+    display_thread.start()
+    display_thread.join()
+    
+    while send_thread.is_alive():
+        serial_recv()
+        
+    # -- durung error handler --------------------------------
+    # -- durung handler esp bawah --------------------------------
 
-    while True:
-        # Panggil fungsi serial_recv dalam loop utama
-        if ser.in_waiting:
-            serial_recv()
+# import time
+# import os
+# left=0
+# right=75
 
-# #print(binascii.unhexlify(checksum).decode('utf-8'))
-# data="fak"
-# enc=data.encode('utf-8')
-# print(enc)
-# print(enc.decode('utf-8'))
-            
-# directory="../data/MX/motion_bucket/1.json"
-# with open(directory, "r") as f:
-#     data=f.read()
-#     print(len(data))
-# data=os.scandir(directory)
-# for i in data:
-#     if i.is_file():
-#         print(i.name.split(".")[0])
+# calculate_bar= lambda i: i/1000*75
+# calculate_precentage= lambda left, right: (left/75)*100
+
+# for i in range(1001):    
+#     os.system("cls")
+#     left=int(calculate_bar(i))
+#     print(left)
+#     # right=right-left
+#     print("[+] Currently Sending:" + str(i))
+#     print("[+] |"+ "#"*left + "-"*(right-left) + "| " + str(int(calculate_precentage(left, right)))+"%")
+#     #time.sleep(0.025)

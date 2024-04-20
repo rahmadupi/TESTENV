@@ -1,5 +1,10 @@
 from enum import Enum, auto
 import struct
+class Motion(Enum):
+    BUCKET=auto()
+    MOVIE=auto()
+    UNIT=auto()
+    FILE=auto()
 
 class Command(Enum):
      # POST
@@ -30,8 +35,7 @@ class Command(Enum):
     RESPONSE_SERVO_JOINT = 61
     RESPONSE_INDEX = 62
     RESPONSE_MOTION_LIST = 63
-    DATA_INITIALIZATION_TO_MID = 64
-    DATA_INITIALIZATION_TO_END=65
+    DATA_INITIALIZATION = 64
     DATA_RESET=66
 
     RESPONSE_CONTROL_PID_ROLL = 71
@@ -57,6 +61,11 @@ class State(Enum):
 
     SEND_INFO = 11
     SEND_DATA = 12
+    
+    
+    INIT_DIR_INFO = 20
+    INIT_INFO = 21
+    INIT_DATA = 22
 
     # LC
     COP_ONLY = 51

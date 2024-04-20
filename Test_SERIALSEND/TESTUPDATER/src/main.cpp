@@ -76,7 +76,7 @@ void serial_recv(void (*callback)(const uint8_t* data, int len, int mac_index)) 
 
     int8_t mac_index = Serial.read();
     uint8_t data_recv[5000];
-    uint32_t len = Serial.readBytesUntil('\n', data_recv, 5000 - 1);
+    uint32_t len = Serial.readBytesUntil('\r\n', data_recv, 5000 - 1);
 
     // Callback
     callback(data_recv, len, mac_index);
