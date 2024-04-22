@@ -14,6 +14,7 @@ import re
 #fixed value
 max_chunk_size=230
 servo_type="None"
+stop=False
 
 # option
 motion="111" # [0] - bucket, [1] - movie, [2] - unit
@@ -47,6 +48,7 @@ def clear():
     os.system('cls' if os.name == 'nt' else 'clear')
 
 def weird_display(*args):
+    global stop
     status=["Not included", "Not included", "Not included"]
     total_file_count=sum(total_file)
     left=0
@@ -60,22 +62,25 @@ def weird_display(*args):
             status[i]="Waiting"
             
     if not display_data:
-        while True:
+        while not stop:
             clear()
+            print(stop)
             for i in range(len(motion)):
                 if send_status[i]==1 and status[i]!="Not included":
                     status[i]="Waiting"
                 elif send_status[i]==2 and status[i]!="Not included" and send_count[i]==total_file[i]:
                     status[i]="Done"
                 
-            print("[+] BEGIN DATA_INITIALIZATION..............................................")
+            print("[+] BEGIN DATA_INITIALIZATION........................................................")
             for i in dir_data:
                 print(i + " - " + str(send_count[dir_data.index(i)]) + "/" + str(total_file[dir_data.index(i)]) + " - " + status[dir_data.index(i)])
             print()
             
-            left=calculate_bar(left)
+            left=int(calculate_bar(left))
             print("[+] Currently Sending:" + str(current_file_sending))
-            print("[+] |"+ "#"*left + "-"*(right-left) + "| " + str(int(calculate_precentage(left, right)))+"%")
+            print("[+] |"+ "#"*left + "-"*(right-left) + "| " + str(int(calculate_precentage(left)))+"%")
+            if(total_file_count==sum(send_count)):
+                stop=True
             
         
 
@@ -231,7 +236,8 @@ def send_info(what_motion, file=None):
             finput.close()
         file_info=bytes((str(file.path)).encode('utf-8')) + len(file.path).to_bytes(4, byteorder='little')
         data_send+=chunk+file_info+checksum
-        print(f"[+] File: {file.name} - Checksum: {checksum}")
+        if display_data:
+            print(f"[+] File: {file.name} - Checksum: {checksum}")
         #send
         
     if data_send != None:
@@ -240,14 +246,12 @@ def send_info(what_motion, file=None):
 
 def send_dir(what_motion):
     global send_status
-    
-    status=1
     if what_motion==virose.Motion.BUCKET:
-        send_status[0]=status
+        send_status[0]=1
     elif what_motion==virose.Motion.MOVIE:
-        send_status[1]=status
+        send_status[1]=1
     elif what_motion==virose.Motion.UNIT:
-        send_status[2]=status
+        send_status[2]=1
     
     send_info(what_motion)
     servo_type="MX"
@@ -259,19 +263,18 @@ def send_dir(what_motion):
             send_file(file, what_motion)
         servo_type="XL"
     
-    status=2
     if what_motion==virose.Motion.BUCKET:
-        send_status[0]=status
+        send_status[0]=2
     elif what_motion==virose.Motion.MOVIE:
-        send_status[1]=status
+        send_status[1]=2
     elif what_motion==virose.Motion.UNIT:
-        send_status[2]=status
+        send_status[2]=2
     
 def send_file(file, what_motion):
     global send_count
     global current_file_sending
     
-    current_file_sending=str(file.name)
+    current_file_sending=str(file.path)
     send_count=send_count
     
     # sending info
@@ -281,7 +284,8 @@ def send_file(file, what_motion):
     # data_send= bytes([0xFD, virose.Command.DATA_INITIALIZATION.value, virose.State.INIT_DATA.value])
     
     chunk_len=math.ceil(os.path.getsize(file.path)/max_chunk_size)
-    print(f"[+] total chunk: {chunk_len}")
+    if display_data:
+        print(f"[+] total chunk: {chunk_len}")
     
     with open(file.path, 'rb') as finput:
         for i in range(chunk_len):
@@ -290,16 +294,16 @@ def send_file(file, what_motion):
             data_send+=i.to_bytes(4, byteorder='little')+file_data+bytes([0xFE, 0x0A])   
             # send
             if(serial_send(data_send, esp_mac_index, file)):
-                print(f"[+] Serial send success: File sent - {file.name} - chunk {i}")
-                if what_motion==virose.Motion.BUCKET:
-                    send_count[0]+=1
-                elif what_motion==virose.Motion.MOVIE:
-                    send_count[1]+=1
-                elif what_motion==virose.Motion.UNIT:
-                    send_count[2]+=1
+                if display_data:
+                    print(f"[+] Serial send success: File sent - {file.name} - chunk {i}")
             else:
                 print(f"[-] Error Send Failed")
-            
+        if what_motion==virose.Motion.BUCKET:
+            send_count[0]+=1
+        elif what_motion==virose.Motion.MOVIE:
+            send_count[1]+=1
+        elif what_motion==virose.Motion.UNIT:
+            send_count[2]+=1
         finput.close()
         print()
 
@@ -357,25 +361,25 @@ def begin_send():
 # Main program
 if __name__ == "__main__":
     # Open serial port
-    try :
-        # with manual port
-        PORT_COM = "COM1"
-        ser = serial.Serial(PORT_COM, 115200, timeout=1)
-        print("[Serial]", PORT_COM, "opened")
-    except:
-        try:
-            print("[Serial] Port", PORT_COM, "not found")
-            # Auto detect serial port
-            ports = list(serial.tools.list_ports.comports())
-            for p in ports:
-                if "USB" in p.description:
-                    port = p.device
-                    break
-            ser = serial.Serial(port, 115200, timeout=1)
-            print("[Serial]", port, "opened with auto detect")
-        except:
-            print("[ERROR] Serial port not found")
-            exit()
+    # try :
+    #     # with manual port
+    #     PORT_COM = "COM1"
+    #     ser = serial.Serial(PORT_COM, 115200, timeout=1)
+    #     print("[Serial]", PORT_COM, "opened")
+    # except:
+    #     try:
+    #         print("[Serial] Port", PORT_COM, "not found")
+    #         # Auto detect serial port
+    #         ports = list(serial.tools.list_ports.comports())
+    #         for p in ports:
+    #             if "USB" in p.description:
+    #                 port = p.device
+    #                 break
+    #         ser = serial.Serial(port, 115200, timeout=1)
+    #         print("[Serial]", port, "opened with auto detect")
+    #     except:
+    #         print("[ERROR] Serial port not found")
+    #         exit()
 
     # Setup MQTT
     # client = mqtt.Client()
@@ -393,15 +397,16 @@ if __name__ == "__main__":
     # print("[MQTT] Connected")
     
     send_thread=threading.Thread(target=begin_send)
-    send_thread.start()
-    send_thread.join()
-    
     display_thread=threading.Thread(target=weird_display)
+    send_thread.start()
     display_thread.start()
+    send_thread.join()
     display_thread.join()
     
+    
     while send_thread.is_alive():
-        serial_recv()
+            print("send thread")
+            serial_recv()
         
     # -- durung error handler --------------------------------
     # -- durung handler esp bawah --------------------------------
