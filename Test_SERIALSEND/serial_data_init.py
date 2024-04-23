@@ -118,19 +118,18 @@ def serial_send(data, mac_index = -1, file=None):
         #byte_data=bytes([0xFD, 255 if mac_index == -1 else mac_index, cmd])+data+ bytes([0xFE, 0x0A])
         # debug
         if display_data:
-            print("[TO ESP] MAC:", mac_index, "| CMD:", virose.Command.DATA_INITIALIZATION.value, "| File: ", "INFO" if file==None else file.name ,"| Size:", len_data + 3, "| Data:", data.hex().upper())
-
-        # ser.write(data)
-        sleep(0.1)
+            print("[TO ESP] MAC:", mac_index, "| CMD:", virose.Command.DATA_INITIALIZATION.value, "| File: ", "INFO" if file==None else file.path ,"| Size:", len_data + 3, "| Data:", data.hex().upper())
+            
+        ret=ser.write(data)
+        sleep(time_delay)
         
-        return True
+        return ret
     except Exception as err:
         if display_data:
             print(f"[-] Serial send error: {err}")
         return False
 
 def serial_recv():
-    clear()
     header = ser.read(1)
     # MONITOR: read until \n and publish to mqtt
     # "[" = "x5B"
@@ -164,49 +163,30 @@ def send_info(what_motion, file=None):
     # | total_chunk | file_path | file_path_size | checksum - state DATA
     # | total_file - state INFO
     # default payload
-    data_send=None
-    
-    if what_motion==0:
-        pass
-    elif what_motion==virose.Motion.BUCKET:
-        data_send=bytes([0xFD, 255 if esp_mac_index == -1 else esp_mac_index, virose.Command.DATA_INITIALIZATION.value, virose.State.INIT_DIR_INFO.value])
-        file_count=bucket_file_count.to_bytes(4, byteorder='little')
-        data_send+=file_count
-        #send
+    data_send=0
         
-    elif what_motion==virose.Motion.MOVIE:
-        data_send=bytes([0xFD, 255 if esp_mac_index == -1 else esp_mac_index, virose.Command.DATA_INITIALIZATION.value, virose.State.INIT_DIR_INFO.value])
-        file_count=movie_file_count.to_bytes(4, byteorder='little')
-        data_send+=file_count
-        #send
-        
-    elif what_motion==virose.Motion.UNIT:
-        data_send=bytes([0xFD, 255 if esp_mac_index == -1 else esp_mac_index, virose.Command.DATA_INITIALIZATION.value, virose.State.INIT_DIR_INFO.value])
-        file_count=unit_file_count.to_bytes(4, byteorder='little')
-        data_send+=file_count
-        #send
-        
-    elif what_motion==virose.Motion.FILE:
-        data_send=bytes([0xFD, 255 if esp_mac_index == -1 else esp_mac_index, virose.Command.DATA_INITIALIZATION.value, virose.State.INIT_INFO.value])
-        
-        chunk=math.ceil(os.path.getsize(file.path)/230).to_bytes(4, byteorder='little')
-        with open(file.path, "rb") as finput:
-            file_data=finput.read()
+    if what_motion==virose.Motion.FILE:
+        data_send= bytes([0xFD, esp_mac_index,virose.Command.DATA_INITIALIZATION.value, virose.State.SEND_INFO.value])
+        chunk=math.ceil(os.path.getsize(file.path)/max_chunk_size).to_bytes(4, byteorder='little')
+        with open(file.path, "rb") as fcheck:
+            file_data=fcheck.read()
             checksum=(binascii.crc32(file_data) & 0xffffffff).to_bytes(4, byteorder='little') #get checksum
-            finput.close()
-        file_info=bytes((str(file.path)).encode('utf-8')) + len(file.path).to_bytes(4, byteorder='little')
-        data_send+=chunk+file_info+checksum
+            fcheck.close()
+        file_info=(len(file.path)).to_bytes(4, byteorder='little')+bytes((str(file.path)).encode('utf-8'))
+        data_send+=chunk+file_info+checksum+bytes([0xFE,0x0A])
         if display_data:
             print(f"[+] File: {file.name} - Checksum: {checksum}")
+            if(serial_send(data_send, esp_mac_index)):
+                if display_data:
+                    print(f"[+] Serial send success: File sent - INFO")
+            else:
+                failed_send=failed_send+1
+                if display_data:
+                    print(f"[-] Error Send Failed")
         #send
-        
-    if data_send != None:
-        serial_send(data_send, esp_mac_index)
         
 def send_dir(what_motion):
     global send_status
-    if stop:
-        raise SystemExit
     
     if what_motion==virose.Motion.BUCKET:
         send_status[0]=1
@@ -214,8 +194,7 @@ def send_dir(what_motion):
         send_status[1]=1
     elif what_motion==virose.Motion.UNIT:
         send_status[2]=1
-    
-    send_info(what_motion)
+        
     servo_type="MX"
     for i in range (2):
         directory=update_variable(servo_type, what_motion)
@@ -251,7 +230,7 @@ def send_file(file, what_motion):
     
     with open(file.path, 'rb') as finput:
         for i in range(chunk_len):
-            data_send= bytes([0xFD, virose.Command.DATA_INITIALIZATION.value, virose.State.INIT_DATA.value])
+            data_send= bytes([0xFD, 255 if esp_mac_index == -1 else esp_mac_index,virose.Command.DATA_INITIALIZATION.value, virose.State.SEND_DATA.value])
             file_data=finput.read(max_chunk_size)
             data_send+=i.to_bytes(4, byteorder='little')+file_data+bytes([0xFE, 0x0A])   
             # send
@@ -282,7 +261,6 @@ def begin_send():
     # parameter tipe servo tipe motion diganti alamat file ambek ukuran string e
     # gae handler e dok esp32
     # send bucket
-    send_info(0)
     
     if display_data:
         print("[+] Begin data INIT:")
@@ -376,7 +354,7 @@ def parse_input():
     parser.add_argument("-esp", "--esp-mac-index",dest='esp_mac_index', help="esp mac index destination", type=int, default=2)
     parser.add_argument("-m", "--motion",dest='motion_opt', help="tipe motion, 3 digit biner, 1 means send, 0 means not send, index 0-2 bucket, movie, unit", default="111", type=str, choices=['001', '011', '111', '100', '110', '101', '010'])
     parser.add_argument("-d", "--display",dest='display_opt', help="display data transfered, False by default", type=bool, default=False)
-    parser.add_argument("-td", "--time-delay",dest='time_delay', help="delay for each data sent, 0.05 by default", type=float, default=0.05)
+    parser.add_argument("-td", "--time-delay",dest='time_delay', help="delay for each data sent, 0.05 by default", type=float, default=0.5)
     data=parser.parse_args()
     motion=data.motion_opt
     display_data=data.display_opt
@@ -386,25 +364,25 @@ def parse_input():
 # Main program
 if __name__ == "__main__":
     # Open serial port
-    # try :
-    #     # with manual port
-    #     PORT_COM = "COM1"
-    #     ser = serial.Serial(PORT_COM, 115200, timeout=1)
-    #     print("[Serial]", PORT_COM, "opened")
-    # except:
-    #     try:
-    #         print("[Serial] Port", PORT_COM, "not found")
-    #         # Auto detect serial port
-    #         ports = list(serial.tools.list_ports.comports())
-    #         for p in ports:
-    #             if "USB" in p.description:
-    #                 port = p.device
-    #                 break
-    #         ser = serial.Serial(port, 115200, timeout=1)
-    #         print("[Serial]", port, "opened with auto detect")
-    #     except:
-    #         print("[ERROR] Serial port not found")
-    #         exit()
+    try :
+        # with manual port
+        PORT_COM = "COM1"
+        ser = serial.Serial(PORT_COM, 115200, timeout=1)
+        print("[Serial]", PORT_COM, "opened")
+    except:
+        try:
+            print("[Serial] Port", PORT_COM, "not found")
+            # Auto detect serial port
+            ports = list(serial.tools.list_ports.comports())
+            for p in ports:
+                if "USB" in p.description:
+                    port = p.device
+                    break
+            ser = serial.Serial(port, 115200, timeout=1)
+            print("[Serial]", port, "opened with auto detect")
+        except:
+            print("[ERROR] Serial port not found")
+            exit()
 
     # Setup MQTT
     # client = mqtt.Client()
@@ -422,20 +400,60 @@ if __name__ == "__main__":
     # print("[MQTT] Connected")
     
     parse_input()
-    send_thread=threading.Thread(target=begin_send)
-    send_thread.start()
+    # send_thread=threading.Thread(target=begin_send)
+    # send_thread.start()
     
-    display_thread=threading.Thread(target=weird_display)
-    display_thread.start()
+    # display_thread=threading.Thread(target=weird_display)
+    # if not display_data:
+    #     display_thread.start()
     
-    while not stop:
-        clear()
-        if not send_thread.is_alive():
-            stop=True
-            display_thread.join()
-            print(f"[+] Send Complete, Destination: esp mac index {esp_mac_index}")
-            print(f"[-] Failed to send: {failed_send}")
-        serial_recv()
-        
+    # while not stop:
+    #     if not send_thread.is_alive():
+    #         stop=True
+    #         if not display_data:
+    #             display_thread.join()
+    #         print(f"[+] Send Complete, Destination: esp mac index {esp_mac_index}")
+    #         print(f"[-] Failed to send: {failed_send}")
+    #     serial_recv()
+    
+    path="../data/MX/motion_bucket/1.json"
+    
+    data_send= bytes([0xFD, esp_mac_index,virose.Command.DATA_INITIALIZATION.value, virose.State.SEND_INFO.value])
+    chunk=math.ceil(os.path.getsize(path)/max_chunk_size).to_bytes(4, byteorder='little')
+    with open(path, "rb") as fcheck:
+        file_data=fcheck.read()
+        checksum=(binascii.crc32(file_data) & 0xffffffff).to_bytes(4, byteorder='little') #get checksum
+        fcheck.close()
+    file_info=(len(path)).to_bytes(4, byteorder='little')+bytes((str(path)).encode('utf-8'))
+    data_send+=chunk+file_info+checksum+bytes([0xFE,0x0A])
+    if display_data:
+        print(f"[+] File: {path} - Checksum: {checksum}")
+        if(serial_send(data_send, esp_mac_index)):
+            if display_data:
+                print(f"[+] Serial send success: File sent - INFO")
+        else:
+            failed_send=failed_send+1
+            if display_data:
+                print(f"[-] Error Send Failed")
+    
+    
+    chunk_len=math.ceil(os.path.getsize(path)/max_chunk_size)
+    if display_data:
+        print(f"[+] total chunk: {chunk_len}")
+    
+    with open(path, 'rb') as finput:
+        for i in range(chunk_len):
+            data_send= bytes([0xFD, 255 if esp_mac_index == -1 else esp_mac_index,virose.Command.DATA_INITIALIZATION.value, virose.State.SEND_DATA.value])
+            file_data=finput.read(max_chunk_size)
+            data_send+=i.to_bytes(4, byteorder='little')+file_data+bytes([0xFE, 0x0A])   
+            # send
+            if(serial_send(data_send, esp_mac_index)):
+                if display_data:
+                    print(f"[+] Serial send success: File sent - {path} - chunk {i}")
+            else:
+                failed_send=failed_send+1
+                if display_data:
+                    print(f"[-] Error Send Failed")
+    
     # -- durung error handler --------------------------------
     # -- durung handler esp bawah --------------------------------

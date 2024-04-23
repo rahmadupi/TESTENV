@@ -82,8 +82,8 @@ def getbucket(path, movie_data, unit_data):
             duration=0
             end_frame=0; #unused
             for unit in movie_data[motion_movie_name.index(movie.get('flow'))]["motion_unit"]:
-                duration+=(round((unit_data[unit["id"]]["time"][unit_data[unit["id"]]["total_frame"]-1])/unit["speed"]))*unit["loop"]
-                end_frame+=(round((unit_data[unit["id"]]["time"][unit_data[unit["id"]]["total_frame"]-1])/unit["speed"]))*unit["loop"] #unused
+                duration+=(round((unit_data[unit["id"]]["time"][unit_data[unit["id"]]["total_frame"]-1])*7.8125/unit["speed"]))*unit["loop"]
+                end_frame+=(round((unit_data[unit["id"]]["time"][unit_data[unit["id"]]["total_frame"]-1])*7.8125/unit["speed"]))*unit["loop"] #unused
             end_frame+=start_frame #unused
             motion_movie = {
                 "id": motion_movie_name.index(movie.get('flow')),#motion_movie_id,
@@ -154,7 +154,7 @@ def getunit(path, servo):
         #get time for each frame
         frames=[]
         for frame in unit.findall('.//step'):
-            frames.append(int(frame.get('frame')))
+            frames.append(int(int(frame.get('frame'))*7.8125))
             
         motion_unit = {
             "id": motion_unit_id,

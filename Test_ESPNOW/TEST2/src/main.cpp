@@ -160,7 +160,7 @@ void serial_event() {
         // while (file.available()) {
         //     Serial.write(file.read());
         // }
-        JsonDocument doc;
+        2ocument doc;
         deserializeJson(doc, file);
         serializeJsonPretty(doc, Serial);
         file.close();

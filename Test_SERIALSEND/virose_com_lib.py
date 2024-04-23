@@ -60,11 +60,6 @@ class State(Enum):
 
     SEND_INFO = 11
     SEND_DATA = 12
-    
-    
-    INIT_DIR_INFO = 20
-    INIT_INFO = 21
-    INIT_DATA = 22
 
     # LC
     COP_ONLY = 51
