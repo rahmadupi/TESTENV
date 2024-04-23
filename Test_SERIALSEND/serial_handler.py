@@ -9,7 +9,7 @@ import threading
 import os
 import binascii
 from time import sleep
-import re
+import argparse
 
 #fixed value
 max_chunk_size=230
@@ -28,10 +28,10 @@ loc_motion_movie="../data/"+servo_type+"/motion_movie/"
 loc_motion_unit="../data/"+servo_type+"/motion_unit/"
 
 # dynamic values
+failed_send=0
 current_file_sending=None
 dir_data=[]
-MX_dir=([i for i in os.scandir(loc_default+"MX/")]) #each servo has the same directory structure
-for i in MX_dir:
+for i in os.scandir(loc_default+"MX/"):
     if i.is_dir():
         dir_data.append(i.name)
         
@@ -41,65 +41,11 @@ unit_file_count=(len([i for i in os.scandir(loc_default+"MX/"+"motion_unit/")]) 
 total_file=[bucket_file_count, movie_file_count, unit_file_count]
 
 send_count=[0,0,0] # [0] - bucket, [1] - movie, [2] - unit
-send_status=[0,0,0] # [0] - bucket, [1] - movie, [2] - unit 1 means ongoing 2 means done
-
+send_status=[0,0,0] # [0] - bucket, [1] - movie, [2] - unit     1 means ongoing 2 means done
 
 def clear():
     os.system('cls' if os.name == 'nt' else 'clear')
-
-def weird_display(*args):
-    global stop
-    status=["Not included", "Not included", "Not included"]
-    total_file_count=sum(total_file)
-    left=0
-    right=75
     
-    calculate_bar= lambda left: sum(send_count)/total_file_count*75
-    calculate_precentage= lambda left: (left/75)*100
-    
-    for i in range(len(motion)):
-        if motion[i]=="1":
-            status[i]="Waiting"
-            
-    if not display_data:
-        while not stop:
-            clear()
-            print(stop)
-            for i in range(len(motion)):
-                if send_status[i]==1 and status[i]!="Not included":
-                    status[i]="Waiting"
-                elif send_status[i]==2 and status[i]!="Not included" and send_count[i]==total_file[i]:
-                    status[i]="Done"
-                
-            print("[+] BEGIN DATA_INITIALIZATION........................................................")
-            for i in dir_data:
-                print(i + " - " + str(send_count[dir_data.index(i)]) + "/" + str(total_file[dir_data.index(i)]) + " - " + status[dir_data.index(i)])
-            print()
-            
-            left=int(calculate_bar(left))
-            print("[+] Currently Sending:" + str(current_file_sending))
-            print("[+] |"+ "#"*left + "-"*(right-left) + "| " + str(int(calculate_precentage(left)))+"%")
-            if(total_file_count==sum(send_count)):
-                stop=True
-            
-        
-
-def update_variable(servo, what_motion):
-    global loc_motion_bucket
-    global loc_motion_movie
-    global loc_motion_unit
-    
-    loc_motion_bucket="../data/"+servo+"/motion_bucket/"
-    loc_motion_movie="../data/"+servo+"/motion_movie/"
-    loc_motion_unit="../data/"+servo+"/motion_unit/"
-    
-    if what_motion==virose.Motion.BUCKET:
-        return loc_motion_bucket
-    elif what_motion==virose.Motion.MOVIE:
-        return loc_motion_movie
-    elif what_motion==virose.Motion.UNIT:
-        return loc_motion_unit
-
 def convert_to_bytes(data):
     # === FLOAT ===
     if type(data) == float: 
@@ -127,6 +73,22 @@ def convert_to_bytes(data):
         data = data.to_bytes(4, byteorder='little')
     
     return data
+
+def update_variable(servo, what_motion):
+    global loc_motion_bucket
+    global loc_motion_movie
+    global loc_motion_unit
+    
+    loc_motion_bucket="../data/"+servo+"/motion_bucket/"
+    loc_motion_movie="../data/"+servo+"/motion_movie/"
+    loc_motion_unit="../data/"+servo+"/motion_unit/"
+    
+    if what_motion==virose.Motion.BUCKET:
+        return loc_motion_bucket
+    elif what_motion==virose.Motion.MOVIE:
+        return loc_motion_movie
+    elif what_motion==virose.Motion.UNIT:
+        return loc_motion_unit
 
 def mqtt_on_message_cb(client, userdata, msg):
     print("[MQTT] Callback, Topic: ", msg.topic, "| Message: ", str(msg.payload, "utf-8"))
@@ -195,8 +157,6 @@ def serial_recv():
     except:
         print("[ERROR] FATAL, command name not defined in ENUM virose_com_lib.py")
         exit()
-    
-
     # client.publish("esp32/"+str(mac_index)+"/response", json.dumps(payload))
     
 def send_info(what_motion, file=None):
@@ -243,9 +203,11 @@ def send_info(what_motion, file=None):
     if data_send != None:
         serial_send(data_send, esp_mac_index)
         
-
 def send_dir(what_motion):
     global send_status
+    if stop:
+        raise SystemExit
+    
     if what_motion==virose.Motion.BUCKET:
         send_status[0]=1
     elif what_motion==virose.Motion.MOVIE:
@@ -273,7 +235,7 @@ def send_dir(what_motion):
 def send_file(file, what_motion):
     global send_count
     global current_file_sending
-    
+    global failed_send
     current_file_sending=str(file.path)
     send_count=send_count
     
@@ -297,7 +259,9 @@ def send_file(file, what_motion):
                 if display_data:
                     print(f"[+] Serial send success: File sent - {file.name} - chunk {i}")
             else:
-                print(f"[-] Error Send Failed")
+                failed_send=failed_send+1
+                if display_data:
+                    print(f"[-] Error Send Failed")
         if what_motion==virose.Motion.BUCKET:
             send_count[0]+=1
         elif what_motion==virose.Motion.MOVIE:
@@ -305,15 +269,24 @@ def send_file(file, what_motion):
         elif what_motion==virose.Motion.UNIT:
             send_count[2]+=1
         finput.close()
-        print()
+        if display_data:
+            print()
 
 def begin_send():
+    # flagged
+    # tambahi state gae info data - | header | mac_index | cmd | state | total_chunk
+    # state gae ngirim data - | header | mac index | cmd | state | chunk_index | file_path | file_path_size | isi data | 0xFE0A
+
+    # end state
+    # mecah setiap file nak beberapa chunk
+    # parameter tipe servo tipe motion diganti alamat file ambek ukuran string e
+    # gae handler e dok esp32
     # send bucket
     send_info(0)
     
     if display_data:
         print("[+] Begin data INIT:")
-        print(f"[+] dir:{(len(MX_dir)-1)*2}")
+        print(f"[+] dir:{(len(dir_data)-1)*2}")
         for i in dir_data:
             print(i)
         print()
@@ -348,15 +321,67 @@ def begin_send():
         
         #send_info(virose.Motion.UNIT)
         send_dir(virose.Motion.UNIT)
-        
-# flagged
-# tambahi state gae info data - | header | mac_index | cmd | state | total_chunk
-# state gae ngirim data - | header | mac index | cmd | state | chunk_index | file_path | file_path_size | isi data | 0xFE0A
 
-# end state
-# mecah setiap file nak beberapa chunk
-# parameter tipe servo tipe motion diganti alamat file ambek ukuran string e
-# gae handler e dok esp32
+def weird_display():
+    global stop
+    file_send_count= []
+    if motion[0]=='1':
+        file_send_count.append(bucket_file_count)
+    if motion[1]=='1':
+        file_send_count.append(movie_file_count)
+    if motion[2]=='1':
+        file_send_count.append(unit_file_count)
+        
+    stop_thread=stop
+    status=["Not included", "Not included", "Not included"]
+    total_file_count=sum(file_send_count)
+    left=0
+    right=75
+    
+    calculate_bar= lambda left: sum(send_count)/total_file_count*75
+    calculate_precentage= lambda left: (left/75)*100
+    
+    for i in range(len(motion)):
+        if motion[i]=="1":
+            status[i]="Waiting"
+            
+    if not display_data:
+        while not stop_thread:
+            clear()
+            stop_thread=stop
+            for i in range(len(motion)):
+                if send_status[i]==1 and status[i]!="Not included":
+                    status[i]="Waiting"
+                elif send_status[i]==2 and status[i]!="Not included" and send_count[i]==total_file[i]:
+                    status[i]="Done"
+                
+            print("[+] BEGIN DATA_INITIALIZATION........................................................")
+            for i in dir_data:
+                print(i + " - " + str(send_count[dir_data.index(i)]) + "/" + str(total_file[dir_data.index(i)]) + " - " + status[dir_data.index(i)])
+            print()
+            
+            left=int(calculate_bar(left))
+            print("[+] Currently Sending:" + str(current_file_sending))
+            print("[+] |"+ "#"*left + "-"*(right-left) + "| " + str(int(calculate_precentage(left)))+"%")
+                
+def parse_input():
+    global motion
+    global display_data
+    global time_delay
+    global esp_mac_index
+    
+    parser=argparse.ArgumentParser(prog='serial_data_init',
+                    description='Mengirimkan data motion baik semua maupun spesifik dengan serial, melalui perantara esp dengan serial dan dari esp perantara ke esp bawah dengan esp_now',
+                    epilog='[+] Rahmad Bisma Zulfi Pahlevi V0.9')
+    parser.add_argument("-esp", "--esp-mac-index",dest='esp_mac_index', help="esp mac index destination", type=int, default=2)
+    parser.add_argument("-m", "--motion",dest='motion_opt', help="tipe motion, 3 digit biner, 1 means send, 0 means not send, index 0-2 bucket, movie, unit", default="111", type=str, choices=['001', '011', '111', '100', '110', '101', '010'])
+    parser.add_argument("-d", "--display",dest='display_opt', help="display data transfered, False by default", type=bool, default=False)
+    parser.add_argument("-td", "--time-delay",dest='time_delay', help="delay for each data sent, 0.05 by default", type=float, default=0.05)
+    data=parser.parse_args()
+    motion=data.motion_opt
+    display_data=data.display_opt
+    time_delay=data.time_delay
+    esp_mac_index=data.esp_mac_index
 
 # Main program
 if __name__ == "__main__":
@@ -396,34 +421,21 @@ if __name__ == "__main__":
     #     pass
     # print("[MQTT] Connected")
     
+    parse_input()
     send_thread=threading.Thread(target=begin_send)
-    display_thread=threading.Thread(target=weird_display)
     send_thread.start()
+    
+    display_thread=threading.Thread(target=weird_display)
     display_thread.start()
-    send_thread.join()
-    display_thread.join()
     
-    
-    while send_thread.is_alive():
-            print("send thread")
-            serial_recv()
+    while not stop:
+        clear()
+        if not send_thread.is_alive():
+            stop=True
+            display_thread.join()
+            print(f"[+] Send Complete, Destination: esp mac index {esp_mac_index}")
+            print(f"[-] Failed to send: {failed_send}")
+        serial_recv()
         
     # -- durung error handler --------------------------------
     # -- durung handler esp bawah --------------------------------
-
-# import time
-# import os
-# left=0
-# right=75
-
-# calculate_bar= lambda i: i/1000*75
-# calculate_precentage= lambda left, right: (left/75)*100
-
-# for i in range(1001):    
-#     os.system("cls")
-#     left=int(calculate_bar(i))
-#     print(left)
-#     # right=right-left
-#     print("[+] Currently Sending:" + str(i))
-#     print("[+] |"+ "#"*left + "-"*(right-left) + "| " + str(int(calculate_precentage(left, right)))+"%")
-#     #time.sleep(0.025)
