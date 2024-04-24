@@ -13,7 +13,7 @@ import argparse
 import re
 
 #fixed value
-max_chunk_size=230
+max_chunk_size=200
 servo_type="None"
 stop=False
 
@@ -403,61 +403,61 @@ if __name__ == "__main__":
     # print("[MQTT] Connected")
     
     parse_input()
-    send_thread=threading.Thread(target=begin_send)
-    send_thread.start()
+    # send_thread=threading.Thread(target=begin_send)
+    # send_thread.start()
     
-    display_thread=threading.Thread(target=weird_display)
-    if not display_data:
-        display_thread.start()
+    # display_thread=threading.Thread(target=weird_display)
+    # if not display_data:
+    #     display_thread.start()
     
-    while not stop:
-        if not send_thread.is_alive():
-            stop=True
-            if not display_data:
-                display_thread.join()
-            print(f"[+] Send Complete, Destination: esp mac index {esp_mac_index}")
-            print(f"[-] Failed to send: {failed_send}")
-        serial_recv()
+    # while not stop:
+    #     if not send_thread.is_alive():
+    #         stop=True
+    #         if not display_data:
+    #             display_thread.join()
+    #         print(f"[+] Send Complete, Destination: esp mac index {esp_mac_index}")
+    #         print(f"[-] Failed to send: {failed_send}")
+    #     serial_recv()
     
     """Test"""
-    # path="../data/MX/motion_bucket/1.json"
-    # file_path=(re.search(r'/data(.*\.json)', path)).group(1)
+    path="../data/MX/motion_bucket/1.json"
+    file_path=(re.search(r'/data(.*\.json)', path)).group(1)
     
-    # data_send= bytes([0xFD, esp_mac_index,virose.Command.RESPONSE_MOTION_LIST.value, virose.State.SEND_INFO.value])
-    # chunk=math.ceil(os.path.getsize(path)/max_chunk_size).to_bytes(4, byteorder='little')
-    # with open(path, "rb") as fcheck:
-    #     file_data=fcheck.read()
-    #     checksum=(binascii.crc32(file_data) & 0xffffffff).to_bytes(4, byteorder='little') #get checksum
-    #     fcheck.close()
-    # file_info=(len(file_path)).to_bytes(4, byteorder='little')+(file_path).encode('utf-8')
-    # data_send+=chunk+checksum+file_info+bytes([0xFE,0x0A])
-    # if display_data:
-    #     print(f"[+] File: {file_path} - Checksum: {checksum}")
-    # if(serial_send(data_send, esp_mac_index)):
-    #     if display_data:
-    #         print(f"[+] Serial send success: File sent - INFO")
-    # else:
-    #     failed_send=failed_send+1
-    #     if display_data:
-    #         print(f"[-] Error Send Failed")
+    data_send= bytes([0xFD, esp_mac_index,virose.Command.RESPONSE_MOTION_LIST.value, virose.State.SEND_INFO.value])
+    chunk=math.ceil(os.path.getsize(path)/max_chunk_size).to_bytes(4, byteorder='little')
+    with open(path, "rb") as fcheck:
+        file_data=fcheck.read()
+        checksum=(binascii.crc32(file_data) & 0xffffffff).to_bytes(4, byteorder='little') #get checksum
+        fcheck.close()
+    file_info=(len(file_path)).to_bytes(4, byteorder='little')+(file_path).encode('utf-8')
+    data_send+=chunk+checksum+file_info+bytes([0xFE,0x0A])
+    if display_data:
+        print(f"[+] File: {file_path} - Checksum: {checksum}")
+    if(serial_send(data_send, esp_mac_index)):
+        if display_data:
+            print(f"[+] Serial send success: File sent - INFO")
+    else:
+        failed_send=failed_send+1
+        if display_data:
+            print(f"[-] Error Send Failed")
 
-    # chunk_len=math.ceil(os.path.getsize(path)/max_chunk_size)
-    # if display_data:
-    #     print(f"[+] total chunk: {chunk_len}")
+    chunk_len=math.ceil(os.path.getsize(path)/max_chunk_size)
+    if display_data:
+        print(f"[+] total chunk: {chunk_len}")
     
-    # with open(path, 'rb') as finput:
-    #     for i in range(1,chunk_len+1):
-    #         data_send= bytes([0xFD, 255 if esp_mac_index == -1 else esp_mac_index,virose.Command.RESPONSE_MOTION_LIST.value, virose.State.SEND_DATA.value])
-    #         file_data=finput.read(max_chunk_size)
-    #         data_send+=(i).to_bytes(4, byteorder='little')+file_data  
-    #         # send
-    #         if(serial_send(data_send, esp_mac_index)):
-    #             if display_data:
-    #                 print(f"[+] Serial send success: File sent - {file_path} - chunk {i}")
-    #         else:
-    #             failed_send=failed_send+1
-    #             if display_data:
-    #                 print(f"[-] Error Send Failed")
+    with open(path, 'rb') as finput:
+        for i in range(1,chunk_len+1):
+            data_send= bytes([0xFD, 255 if esp_mac_index == -1 else esp_mac_index,virose.Command.RESPONSE_MOTION_LIST.value, virose.State.SEND_DATA.value])
+            file_data=finput.read(max_chunk_size)
+            data_send+=(i).to_bytes(4, byteorder='little')+file_data  
+            # send
+            if(serial_send(data_send, esp_mac_index)):
+                if display_data:
+                    print(f"[+] Serial send success: File sent - {file_path} - chunk {i}")
+            else:
+                failed_send=failed_send+1
+                if display_data:
+                    print(f"[-] Error Send Failed")
     
 #     # -- durung error handler --------------------------------
 #     # -- durung handler esp bawah --------------------------------
